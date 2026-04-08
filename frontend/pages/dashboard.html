@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard — Test-E</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div id="app" style="display:none">
+    <!-- Sidebar injected by JS -->
+    <div id="sidebar-container"></div>
+
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <div class="page-title">Dashboard</div>
+                <div class="page-subtitle" id="greeting">Good morning!</div>
+            </div>
+            <div id="date-display" class="text-muted"></div>
+        </div>
+
+        <!-- KPI Stats -->
+        <div class="stats-grid" id="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Today's Revenue</div>
+                <div class="stat-value" id="stat-revenue">₹—</div>
+                <div class="stat-desc">Completed payments today</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Active Orders</div>
+                <div class="stat-value" id="stat-orders">—</div>
+                <div class="stat-desc">Pending / Preparing / Served</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Available Tables</div>
+                <div class="stat-value" id="stat-tables">—</div>
+                <div class="stat-desc">Ready to seat customers</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Orders Today</div>
+                <div class="stat-value" id="stat-today">—</div>
+                <div class="stat-desc">Total orders placed today</div>
+            </div>
+        </div>
+
+        <!-- Active Orders Table -->
+        <div class="table-container" style="margin-bottom:20px">
+            <div class="table-toolbar">
+                <span class="table-title">⏳ Active Orders</span>
+                <a href="orders.html" class="btn btn-outline">View All →</a>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Order #</th>
+                        <th>Customer</th>
+                        <th>Table</th>
+                        <th>Status</th>
+                        <th>Total</th>
+                        <th>Date & Time</th>
+                    </tr>
+                </thead>
+                <tbody id="active-orders-body">
+                    <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Popular Items -->
+        <div class="table-container">
+            <div class="table-toolbar">
+                <span class="table-title">🔥 Top Selling Items</span>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Item</th>
+                        <th>Category</th>
+                        <th>Price</th>
+                        <th>Total Ordered</th>
+                        <th>Revenue</th>
+                    </tr>
+                </thead>
+                <tbody id="popular-body">
+                    <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<div id="toast"></div>
+<script src="../../api.js"></script>
+<script>
+    // At the top of dashboard.js
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const user = await requireAuth(); // This checks the session cookie
+        document.getElementById('welcome-msg').textContent = `Hello, ${user.full_name}!`;
+        loadDashboardStats(); // Then load the actual data
+    } catch (err) {
+        // requireAuth handles the redirect to index.html if the cookie is missing
+    }
+});
+(async () => {
+    const user = await requireAuth();
+    document.getElementById('sidebar-container').innerHTML = renderSidebar('dashboard');
+
+    // Greeting based on time
+    const h = new Date().getHours();
+    const greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+    document.getElementById('greeting').textContent = `${greet}, ${user.full_name || user.username}!`;
+    document.getElementById('date-display').textContent = new Date().toLocaleDateString('en-IN', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+
+    document.getElementById('app').style.display = 'flex';
+
+    // Load dashboard stats
+    try {
+        const stats = await api.get('/reports/dashboard');
+        document.getElementById('stat-revenue').textContent = rupees(stats.today_revenue);
+        document.getElementById('stat-orders').textContent  = stats.active_orders;
+        document.getElementById('stat-tables').textContent  = stats.available_tables;
+        document.getElementById('stat-today').textContent   = stats.orders_today;
+    } catch(e) {}
+
+    // Load active orders
+    try {
+        const orders = await api.get('/orders?status=pending');
+        const body = document.getElementById('active-orders-body');
+        if (!orders.length) {
+            body.innerHTML = '<tr><td colspan="6" class="empty-state">No active orders 🎉</td></tr>';
+        } else {
+            body.innerHTML = orders.slice(0, 5).map(o => `
+                <tr>
+                    <td><strong>#${o.order_id}</strong></td>
+                    <td>${o.customer_name}</td>
+                    <td>Table ${o.table_number}</td>
+                    <td>${statusBadge(o.status)}</td>
+                    <td>${rupees(o.order_total)}</td>
+                    <td class="text-muted">${o.created_at}</td>
+                </tr>
+            `).join('');
+        }
+    } catch(e) {}
+
+    // Load popular items
+    try {
+        const items = await api.get('/reports/popular-items');
+        const body = document.getElementById('popular-body');
+        if (!items.length) {
+            body.innerHTML = '<tr><td colspan="6" class="empty-state">No data yet</td></tr>';
+        } else {
+            body.innerHTML = items.map((it, i) => `
+                <tr>
+                    <td class="text-muted">${i+1}</td>
+                    <td><strong>${it.item_name}</strong></td>
+                    <td>${it.category}</td>
+                    <td>${rupees(it.price)}</td>
+                    <td>${it.total_ordered}</td>
+                    <td class="text-accent">${rupees(it.total_revenue)}</td>
+                </tr>
+            `).join('');
+        }
+    } catch(e) {}
+})();
+</script>
+</body>
+</html>

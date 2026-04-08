@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Orders — Test-E</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div id="app" style="display:none">
+    <div id="sidebar-container"></div>
+
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <div class="page-title">Order Management</div>
+                <div class="page-subtitle">Create new orders and track status</div>
+            </div>
+            <button class="btn btn-primary" onclick="openNewOrderModal()">＋ New Order</button>
+        </div>
+
+        <div class="filter-bar mb-4">
+            <button class="btn btn-primary" onclick="loadOrders('')"      id="f-all">All</button>
+            <button class="btn btn-outline" onclick="loadOrders('pending')"   id="f-pending">Pending</button>
+            <button class="btn btn-outline" onclick="loadOrders('preparing')" id="f-preparing">Preparing</button>
+            <button class="btn btn-outline" onclick="loadOrders('served')"    id="f-served">Served</button>
+            <button class="btn btn-outline" onclick="loadOrders('completed')" id="f-completed">Completed</button>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Order #</th>
+                        <th>Customer</th>
+                        <th>Table</th>
+                        <th>Status</th>
+                        <th>Total</th>
+                        <th>Date & Time</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="orders-body">
+                    <tr><td colspan="7" class="empty-state">Loading orders...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<div class="modal-overlay" id="new-order-modal">
+    <div class="modal" style="width:580px; max-width:95vw; max-height: 90vh; overflow-y: auto;">
+        <div class="modal-header">
+            <span class="modal-title">New Order</span>
+            <button class="modal-close" onclick="closeModal('new-order-modal')">✕</button>
+        </div>
+
+        <div class="modal-body">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px">
+                <div class="form-group">
+                    <label>Customer Name (optional)</label>
+                    <input type="text" id="order-customer-name" placeholder="Enter name">
+                </div>
+                <div class="form-group">
+                    <label>Customer Phone (optional)</label>
+                    <input type="text" id="order-phone" placeholder="Search by phone" oninput="lookupCustomer(this.value)">
+                </div>
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="email" id="order-email" placeholder="Enter email">
+                </div>
+                <div class="form-group">
+                    <label>Table *</label>
+                    <select id="order-table">
+                        <option value="">Select table...</option>
+                    </select>
+                </div>
+            </div>
+            <small id="customer-found" style="color:var(--green); font-size:11px; display:block; margin-bottom:10px"></small>
+
+            <div class="form-group">
+                <label>Notes</label>
+                <input type="text" id="order-notes" placeholder="e.g. No onions, extra spicy">
+            </div>
+
+            <div style="font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin:15px 0 8px">Select Items</div>
+            <input type="text" id="item-search" placeholder="🔍 Search menu items..."
+                   style="width:100%; margin-bottom:10px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:8px; color:var(--text)"
+                   oninput="filterMenuItems(this.value)">
+
+            <div id="picker-grid" style="max-height:220px; overflow-y:auto; display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; padding-right:4px"></div>
+
+            <div id="cart-summary" style="margin-top:14px; border-top:1px solid var(--border); padding-top:12px">
+                <div id="cart-items-list" style="font-size:13px; max-height:150px; overflow-y:auto;"></div>
+                
+                <div class="flex" style="justify-content:space-between; margin-top:12px; align-items:center">
+                    <div>
+                        <span style="font-weight:700">Total: </span>
+                        <span class="text-accent" id="cart-total-display" style="font-weight:700">₹0.00</span>
+                    </div>
+                    <button id="clear-cart-btn" class="btn btn-outline" style="color:#ff4d4d; border-color:#ff4d4d; padding:4px 12px; font-size:11px; display:none" onclick="clearCart()">🗑 Clear Cart</button>
+                </div>
+            </div>
+
+            <div class="flex gap-2 mt-4">
+                <button class="btn btn-primary" style="flex:1" onclick="placeOrder()">✓ Place Order</button>
+                <button class="btn btn-outline" onclick="closeModal('new-order-modal')">Cancel</button>
+            </div>
+        </div>
+    </div> 
+</div>
+
+<div class="modal-overlay" id="detail-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <span class="modal-title" id="detail-title">Order Details</span>
+            <button class="modal-close" onclick="closeModal('detail-modal')">✕</button>
+        </div>
+        <div id="detail-body"></div>
+    </div>
+</div>
+
+<div id="toast"></div>
+<script src="../../api.js"></script>
+<script>
+let menuItems = [];
+let cart = {}; 
+let customerId = null;
+let availableTables = [];
+
+(async () => {
+    await requireAuth();
+    document.getElementById('sidebar-container').innerHTML = renderSidebar('orders');
+    document.getElementById('app').style.display = 'flex';
+    await loadOrders('');
+    menuItems = await api.get('/menu');
+    availableTables = (await api.get('/tables')).filter(t => t.status === 'available');
+})();
+
+async function loadOrders(status) {
+    const orders = await api.get(status ? `/orders?status=${status}` : '/orders');
+    const body = document.getElementById('orders-body');
+    if (!orders.length) { body.innerHTML = '<tr><td colspan="7" class="empty-state">No orders found</td></tr>'; return; }
+    
+    body.innerHTML = orders.map(o => {
+        const displayName = o.customer_name || 'Walk-in';
+        
+        return `
+        <tr>
+            <td><strong>#${o.order_id}</strong></td>
+            <td>${displayName}<br><small>${o.phone || ''}</small></td>
+            <td>Table ${o.table_number}</td>
+            <td>
+    <select class="status-select" 
+        onchange="updateOrderStatus(${o.order_id}, this.value)" 
+        ${(o.status === 'completed' || o.status === 'cancelled') ? 'disabled' : ''} 
+        style="padding:4px; border-radius:4px; background:var(--card); color:var(--text); border:1px solid var(--border); ${(o.status === 'completed' || o.status === 'cancelled') ? 'opacity:0.6; cursor:not-allowed;' : ''}">
+        
+        <option value="pending" ${o.status === 'pending' ? 'selected' : ''}>Pending</option>
+        <option value="preparing" ${o.status === 'preparing' ? 'selected' : ''}>Preparing</option>
+        <option value="served" ${o.status === 'served' ? 'selected' : ''}>Served</option>
+        <option value="completed" ${o.status === 'completed' ? 'selected' : ''}>Completed</option>
+        <option value="cancelled" ${o.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+    </select>
+</td>
+            <td>${rupees(o.order_total)}</td>
+            <td>${o.created_at}</td>
+            <td><button class="btn btn-outline" onclick="viewOrder(${o.order_id})">👁️ View</button></td>
+        </tr>`;
+    }).join('');
+}
+
+// Add this new function to handle the status change
+async function updateOrderStatus(orderId, newStatus) {
+    try {
+        await api.put(`/orders/${orderId}/status`, { status: newStatus });
+        showToast(`Order #${orderId} updated to ${newStatus}`);
+        await loadOrders('');
+    } catch (err) {
+        showToast("Failed to update status", true);
+    }
+}
+
+function openNewOrderModal() {
+    cart = {}; customerId = null;
+    document.getElementById('order-phone').value = '';
+    document.getElementById('order-customer-name').value = '';
+    document.getElementById('order-email').value = '';
+    document.getElementById('order-notes').value = '';
+    
+    // RESTORED: Seat Capacity display
+    document.getElementById('order-table').innerHTML = '<option value="">Select table...</option>' + 
+        availableTables.map(t => `<option value="${t.table_id}">Table ${t.table_number} (${t.capacity} seats)</option>`).join('');
+    
+    renderPickerGrid(menuItems);
+    updateCartDisplay();
+    openModal('new-order-modal');
+}
+
+function renderPickerGrid(items) {
+    document.getElementById('picker-grid').innerHTML = items.filter(i => i.is_available).map(item => `
+        <div class="menu-card" onclick="addToCart(${item.item_id})" style="${cart[item.item_id] ? 'border-color:var(--accent)' : ''}">
+            <div class="menu-card-name">${item.name}</div>
+            <div class="menu-card-cat">${item.category_name}</div> <div class="menu-card-price">${rupees(item.price)}</div>
+            ${cart[item.item_id] ? `<div style="font-size:11px;color:var(--accent)">Qty: ${cart[item.item_id]}</div>` : ''}
+        </div>`).join('');
+}
+
+function addToCart(itemId) {
+    cart[itemId] = (cart[itemId] || 0) + 1;
+    renderPickerGrid(menuItems);
+    updateCartDisplay();
+}
+
+function removeFromCart(itemId) {
+    if (cart[itemId] > 1) cart[itemId] -= 1;
+    else delete cart[itemId];
+    renderPickerGrid(menuItems);
+    updateCartDisplay();
+}
+
+function updateCartDisplay() {
+    const entries = Object.entries(cart);
+    const list = document.getElementById('cart-items-list');
+    let total = 0;
+
+    list.innerHTML = entries.map(([id, qty]) => {
+        const item = menuItems.find(i => i.item_id == id);
+        total += item.price * qty;
+        return `
+            <div class="flex" style="justify-content:space-between; margin-bottom:8px; align-items:center; background:var(--card); padding:8px; border-radius:6px">
+                <div style="flex:1">
+                    <div>${item.name}</div>
+                    <div style="font-size:11px; color:var(--muted)">${rupees(item.price)} each</div>
+                </div>
+                <div class="flex gap-2" style="align-items:center">
+                    <button class="btn btn-outline" style="padding:2px 8px" onclick="removeFromCart(${id})">-</button>
+                    <strong>${qty}</strong>
+                    <button class="btn btn-outline" style="padding:2px 8px" onclick="addToCart(${id})">+</button>
+                </div>
+            </div>`;
+    }).join('') || '<div class="text-muted" style="text-align:center">No items selected</div>';
+
+    document.getElementById('cart-total-display').textContent = rupees(total);
+    document.getElementById('clear-cart-btn').style.display = entries.length ? 'block' : 'none';
+}
+
+function clearCart() { cart = {}; renderPickerGrid(menuItems); updateCartDisplay(); }
+
+async function lookupCustomer(phone) {
+    if (phone.length < 10) return;
+    const res = await api.get('/customers?phone=' + phone);
+    if (res.length) {
+        customerId = res[0].customer_id;
+        document.getElementById('order-customer-name').value = res[0].full_name;
+        document.getElementById('order-email').value = res[0].email || '';
+        document.getElementById('customer-found').textContent = '✓ Customer Found';
+    }
+}
+
+async function placeOrder() {
+    const tableId = document.getElementById('order-table').value;
+    const items = Object.entries(cart).map(([id, quantity]) => ({ item_id: parseInt(id), quantity }));
+    if (!tableId || !items.length) return showToast('Select table and items', true);
+
+    await api.post('/orders', {
+        table_id: tableId,
+        customer_id: customerId,
+        customer_name: document.getElementById('order-customer-name').value,
+        phone: document.getElementById('order-phone').value, // Added this
+        email: document.getElementById('order-email').value, // Added this
+        notes: document.getElementById('order-notes').value,
+        items
+    });
+
+    showToast('Order placed successfully!');
+    closeModal('new-order-modal');
+    availableTables = (await api.get('/tables')).filter(t => t.status === 'available');
+    await loadOrders('');
+}
+async function viewOrder(orderId) {
+    try {
+        const order = await api.get('/orders/' + orderId);
+        const bill  = await api.get('/orders/' + orderId + '/bill');
+
+        document.getElementById('detail-title').textContent = `Order #${orderId} — ${order.customer_name || 'Walk-in'}`;
+        
+        const alreadyCollected = order.is_paid; 
+        const isCancelled = order.status === 'cancelled';
+        const isCompleted = order.status === 'completed';
+
+        document.getElementById('detail-body').innerHTML = `
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;font-size:13px">
+                <div><span class="text-muted">Table:</span> Table ${order.table_number}</div>
+                <div><span class="text-muted">Status:</span> ${statusBadge(order.status)}</div>
+                <div><span class="text-muted">Phone:</span> ${order.phone || 'N/A'}</div>
+                
+                <div style="grid-column:1/-1; margin-top:8px; padding:10px; border-radius:6px; 
+                     background:${alreadyCollected ? 'rgba(46,204,113,0.1)' : (isCancelled ? 'rgba(231,76,60,0.1)' : 'rgba(231,76,60,0.1)')}">
+                    <span style="color:${alreadyCollected ? 'var(--green)' : (isCancelled ? 'var(--muted)' : 'var(--red)')}; font-weight:700">
+                        ${alreadyCollected ? '✓ Payment: Collected' : (isCancelled ? '✘ Order Cancelled' : '⚠ Payment: Pending')}
+                    </span>
+                </div>
+            </div>
+
+            <div style="border-top:1px solid var(--border); padding-top:12px; margin-bottom:12px">
+                <div style="font-size:11px; text-transform:uppercase; color:var(--muted); margin-bottom:8px">Receipt Details</div>
+                ${order.items.map(item => `
+                    <div class="flex" style="justify-content:space-between; font-size:13px; margin-bottom:4px">
+                        <span>${item.item_name} x ${item.quantity}</span>
+                        <span>${rupees(item.unit_price * item.quantity)}</span>
+                    </div>
+                `).join('')}
+            </div>
+
+            <div style="text-align:right; font-size:13px; border-top:1px solid var(--border); padding-top:8px">
+                <div class="flex" style="justify-content:space-between; font-weight:700; font-size:15px; color:var(--accent)">
+                    <span>TOTAL:</span><span>${rupees(bill.total)}</span>
+                </div>
+            </div>
+
+            ${(!alreadyCollected && !isCancelled && isCompleted) ? `
+                <div id="payment-section" style="margin-top:20px; padding-top:15px; border-top:2px dashed var(--border)">
+                    <div style="font-size:11px; text-transform:uppercase; color:var(--muted); margin-bottom:10px">Process Payment</div>
+                    <div class="flex gap-2">
+                        <select id="pay-method" style="background:var(--card); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px; flex:1">
+                            <option value="cash">💵 Cash</option>
+                            <option value="upi">📱 UPI / QR</option>
+                            <option value="card">💳 Card</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="processPayment(${orderId}, ${bill.total})">
+                            ✓ Collect ${rupees(bill.total)}
+                        </button>
+                    </div>
+                </div>
+            ` : (isCancelled ? '<div style="margin-top:20px; text-align:center; color:var(--muted)">This order was cancelled. No payment required.</div>' : '')}
+        `;
+        openModal('detail-modal');
+    } catch (err) {
+        showToast("Could not load order details", true);
+    }
+}
+
+async function processPayment(orderId, total) {
+    const method = document.getElementById('pay-method').value;
+    try {
+        await api.post('/payments', { 
+            order_id: orderId, 
+            payment_method: method, 
+            discount: 0 
+        });
+
+        showToast(`Payment of ${rupees(total)} successful!`);
+        closeModal('detail-modal');
+        
+        availableTables = (await api.get('/tables')).filter(t => t.status === 'available');
+        await loadOrders('');
+    } catch (err) {
+        showToast("Payment failed", true);
+    }
+}
+</script>
+</body>
+</html>

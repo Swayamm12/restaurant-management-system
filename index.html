@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — Test-E</title>
+    <link rel="stylesheet" href="frontend/css/style.css">
+</head>
+<body>
+<div class="login-page">
+    <div class="login-box">
+        <div class="login-logo">🍴 Test-E</div>
+        <p class="login-sub">Taste The Results</p>
+
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="username" placeholder="admin" autocomplete="username">
+        </div>
+        <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+        </div>
+
+        <button class="btn btn-primary btn-full" onclick="login()">Sign In →</button>
+
+        <p class="text-muted mt-2" style="font-size:12px;text-align:center;">
+            Default: admin / admin123
+        </p>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="api.js"></script>
+
+<script>
+    // If already logged in, skip to dashboard
+    apiFetch('/me', { method: 'GET', silent: true }) 
+            .then(() => {
+                // If the "handshake" works, skip the login and go to dashboard
+                window.location.href = 'frontend/pages/dashboard.html';
+            })
+            .catch(() => {
+                // If it fails, we do nothing (the user just stays on the login page)
+                console.log("User is guest - staying on login page.");
+            });
+
+    async function login() {
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+
+        if (!username || !password) {
+            return showToast('Please fill in all fields', true);
+        }
+
+        try {
+            await api.post('/login', { username, password });
+            showToast('Login successful! Redirecting...');
+            setTimeout(() => {
+                // UPDATED PATH: Points to the subfolder
+                window.location.href = 'frontend/pages/dashboard.html';
+            }, 800);
+        } catch (e) {
+            // Error already shown by apiFetch in api.js
+        }
+    }
+
+    
+
+    // Allow Enter key to submit
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Enter') login();
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Reports — Test-E</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div id="app" style="display:none">
+    <div id="sidebar-container"></div>
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <div class="page-title">Reports</div>
+                <div class="page-subtitle">Sales analytics and insights</div>
+            </div>
+        </div>
+
+        <!-- Revenue Summary Cards -->
+        <div class="stats-grid" style="margin-bottom:28px">
+            <div class="stat-card"><div class="stat-label">Total Revenue</div><div class="stat-value" id="r-total">—</div></div>
+            <div class="stat-card"><div class="stat-label">Total Orders</div><div class="stat-value" id="r-orders">—</div></div>
+            <div class="stat-card"><div class="stat-label">Avg Order Value</div><div class="stat-value" id="r-avg">—</div></div>
+            <div class="stat-card"><div class="stat-label">Tax Collected</div><div class="stat-value" id="r-tax">—</div></div>
+        </div>
+
+        <!-- Daily Sales Table -->
+        <div class="table-container" style="margin-bottom:20px">
+            <div class="table-toolbar">
+                <span class="table-title">📅 Daily Sales Report</span>
+                <span class="text-muted" style="font-size:12px">Based on completed payments</span>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Orders</th>
+                        <th>Gross Sales</th>
+                        <th>Tax</th>
+                        <th>Discounts</th>
+                        <th>Net Revenue</th>
+                    </tr>
+                </thead>
+                <tbody id="sales-body">
+                    <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Popular Items -->
+        <div class="table-container">
+            <div class="table-toolbar">
+                <span class="table-title">🔥 Most Popular Items</span>
+            </div>
+            <table>
+                <thead>
+                    <tr><th>Rank</th><th>Item</th><th>Category</th><th>Price</th><th>Times Ordered</th><th>Revenue</th></tr>
+                </thead>
+                <tbody id="popular-body">
+                    <tr><td colspan="6" class="empty-state">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<div id="toast"></div>
+<script src="../../api.js"></script>
+<script>
+(async () => {
+    await requireAuth();
+    document.getElementById('sidebar-container').innerHTML = renderSidebar('reports');
+    document.getElementById('app').style.display = 'flex';
+
+    // Load daily sales
+    const sales = await api.get('/reports/sales');
+    const body = document.getElementById('sales-body');
+
+    let totalRevenue = 0, totalOrders = 0, totalTax = 0;
+    if (!sales.length) {
+        body.innerHTML = '<tr><td colspan="6" class="empty-state">No sales data yet. Create and pay for some orders first!</td></tr>';
+    } else {
+        sales.forEach(s => {
+            totalRevenue += parseFloat(s.net_revenue || 0);
+            totalOrders  += parseInt(s.total_orders || 0);
+            totalTax     += parseFloat(s.tax_collected || 0);
+        });
+        body.innerHTML = sales.map(s => `
+            <tr>
+                <td>${new Date(s.sale_date).toLocaleDateString('en-IN',{weekday:'short',month:'short',day:'numeric'})}</td>
+                <td><strong>${s.total_orders}</strong></td>
+                <td>${rupees(s.gross_sales)}</td>
+                <td>${rupees(s.tax_collected)}</td>
+                <td style="color:var(--red)">${s.discounts_given > 0 ? '−' + rupees(s.discounts_given) : '—'}</td>
+                <td class="text-accent"><strong>${rupees(s.net_revenue)}</strong></td>
+            </tr>
+        `).join('');
+    }
+
+    document.getElementById('r-total').textContent  = rupees(totalRevenue);
+    document.getElementById('r-orders').textContent = totalOrders;
+    document.getElementById('r-avg').textContent    = totalOrders ? rupees(totalRevenue / totalOrders) : '₹0';
+    document.getElementById('r-tax').textContent    = rupees(totalTax);
+
+    // Load popular items
+    const items = await api.get('/reports/popular-items');
+    const pbody = document.getElementById('popular-body');
+    if (!items.length) {
+        pbody.innerHTML = '<tr><td colspan="6" class="empty-state">No order data yet</td></tr>';
+    } else {
+        pbody.innerHTML = items.map((it,i) => `
+            <tr>
+                <td>${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i+1}</td>
+                <td><strong>${it.item_name}</strong></td>
+                <td><span class="badge badge-blue">${it.category}</span></td>
+                <td>${rupees(it.price)}</td>
+                <td><strong>${it.total_ordered}</strong></td>
+                <td class="text-accent">${rupees(it.total_revenue)}</td>
+            </tr>
+        `).join('');
+    }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tables — Test-E</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div id="app" style="display:none">
+    <div id="sidebar-container"></div>
+    <main class="main-content">
+        <div class="page-header">
+            <div>
+                <div class="page-title">Table Management</div>
+                <div class="page-subtitle">Monitor and update table status</div>
+            </div>
+            <div class="flex gap-2">
+                <span class="badge badge-green">● Available</span>
+                <span class="badge badge-red">● Occupied</span>
+                <span class="badge badge-amber">● Reserved</span>
+            </div>
+        </div>
+
+        <!-- Legend counts -->
+        <div class="stats-grid" style="grid-template-columns:repeat(3,1fr);max-width:480px;margin-bottom:24px">
+            <div class="stat-card"><div class="stat-label">Available</div><div class="stat-value" id="cnt-available" style="color:var(--green)">—</div></div>
+            <div class="stat-card"><div class="stat-label">Occupied</div><div class="stat-value" id="cnt-occupied" style="color:var(--red)">—</div></div>
+            <div class="stat-card"><div class="stat-label">Reserved</div><div class="stat-value" id="cnt-reserved" style="color:var(--accent)">—</div></div>
+        </div>
+
+        <!-- Table Grid -->
+        <div class="tables-grid" id="tables-grid">
+            <div class="empty-state">Loading tables...</div>
+        </div>
+    </main>
+</div>
+
+<!-- Update Status Modal -->
+<div class="modal-overlay" id="table-modal">
+    <div class="modal" style="width:340px">
+        <div class="modal-header">
+            <span class="modal-title" id="table-modal-title">Update Table</span>
+            <button class="modal-close" onclick="closeModal('table-modal')">✕</button>
+        </div>
+        <input type="hidden" id="selected-table-id">
+        <div class="form-group">
+            <label>Change Status</label>
+            <select id="new-status">
+                <option value="available">Available</option>
+                <option value="occupied">Occupied</option>
+                <option value="reserved">Reserved</option>
+            </select>
+        </div>
+        <div class="flex gap-2 mt-4">
+            <button class="btn btn-primary" onclick="saveTableStatus()">Update</button>
+            <button class="btn btn-outline" onclick="closeModal('table-modal')">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+<script src="../../api.js"></script>
+<script>
+(async () => {
+    await requireAuth();
+    document.getElementById('sidebar-container').innerHTML = renderSidebar('tables');
+    document.getElementById('app').style.display = 'flex';
+    await loadTables();
+})();
+
+async function loadTables() {
+    const tables = await api.get('/tables');
+
+    // Update counts
+    document.getElementById('cnt-available').textContent = tables.filter(t => t.status === 'available').length;
+    document.getElementById('cnt-occupied').textContent  = tables.filter(t => t.status === 'occupied').length;
+    document.getElementById('cnt-reserved').textContent  = tables.filter(t => t.status === 'reserved').length;
+
+    const grid = document.getElementById('tables-grid');
+    grid.innerHTML = tables.map(t => `
+        <div class="table-card ${t.status}" onclick="openTableModal(${t.table_id}, ${t.table_number}, '${t.status}')">
+            <div class="table-num">${t.table_number}</div>
+            <div class="table-cap">👥 Seats ${t.capacity}</div>
+            <div style="margin-top:8px">${statusBadge(t.status)}</div>
+        </div>
+    `).join('');
+}
+
+function openTableModal(id, number, currentStatus) {
+    document.getElementById('selected-table-id').value = id;
+    document.getElementById('table-modal-title').textContent = `Table ${number}`;
+    document.getElementById('new-status').value = currentStatus;
+    openModal('table-modal');
+}
+
+async function saveTableStatus() {
+    const id     = document.getElementById('selected-table-id').value;
+    const status = document.getElementById('new-status').value;
+    await api.put(`/tables/${id}/status`, { status });
+    showToast('Table status updated');
+    closeModal('table-modal');
+    await loadTables();
+}
+</script>
+</body>
+</html>
